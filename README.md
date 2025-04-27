@@ -10,7 +10,7 @@
 - ☁️ FTP upload of backup files after each run  
 - 🛠️ Customizable backup settings (host, user, password, database, destination folder, etc.)  
 - 📅 Built-in scheduler for daily or custom interval backups  
-- 💾 Option to keep local backup copies  
+- 💾 Local Backups are found in the install folder (C:\DBAckup)  
 - 🧹 Auto-cleanup of old backups to save storage  
 - ✅ Easy-to-use GUI with minimal setup required
 
