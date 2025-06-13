@@ -17,6 +17,8 @@ using File = System.IO.File;
 using System.Drawing;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace DBackup
 {
@@ -64,6 +66,13 @@ namespace DBackup
             LoadMySQLDatabases();
             LoadSettings();
             StartBackupThread();
+            if (localPath.Text.Trim() == "")
+            {
+                localPath.Text = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                    "DBackup");
+                Directory.CreateDirectory(localPath.Text);
+            }
         }
 
         private void DBackup_FormClosing(object sender, FormClosingEventArgs e)
@@ -169,17 +178,18 @@ namespace DBackup
                         return;
                     }
 
-                    List<string> excludedDatabases = new List<string>
-                    {
-                        "information_schema", "performance_schema", "mysql", "sys", "phpmyadmin", "test", "testdb"
-                    };
-
                     if (databases == null)
-                    {
                         return;
-                    }
+
+                    databases.Items.Clear();
+
+                    List<string> excludedDatabases = new List<string>
+            {
+                "information_schema", "performance_schema", "mysql", "sys", "phpmyadmin", "test", "testdb"
+            };
 
                     string[] lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
                     for (int i = 1; i < lines.Length; i++)
                     {
                         var parts = lines[i].Trim().Split('\t');
@@ -187,13 +197,12 @@ namespace DBackup
                         if (parts.Length >= 3)
                         {
                             string dbName = parts[0];
-
                             if (excludedDatabases.Contains(dbName))
                                 continue;
 
                             var item = new ListViewItem(dbName);
-                            item.SubItems.Add(parts[1]);
-                            item.SubItems.Add(parts[2]);
+                            item.SubItems.Add(parts[1]); // Size MB
+                            item.SubItems.Add(parts[2]); // Table count
                             databases.Items.Add(item);
                         }
                     }
@@ -240,7 +249,22 @@ namespace DBackup
 
         private string BackupPath()
         {
-            return Path.Combine(@"C:\DBackup", foldername.Text.Trim());
+            return Path.Combine(localPath.Text.Trim(), "Backups");
+        }
+
+        private void browsePath_Click(object sender, EventArgs e)
+        {
+            using (FolderBrowserDialog folderDialog = new FolderBrowserDialog())
+            {
+                // Set the default selected path
+                string defaultPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "DBackup");
+                folderDialog.Description = "Select a backup folder";
+
+                if (folderDialog.ShowDialog() == DialogResult.OK)
+                {
+                    localPath.Text = folderDialog.SelectedPath;
+                }
+            }
         }
 
         private string FindMySQLDump()
@@ -261,7 +285,7 @@ namespace DBackup
 
             int retentionDays = int.TryParse(nrdaysbk.Text.Trim(), out int days) ? days : 7;
             string backupRoot = BackupPath();
-            string dateTimeStr = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string dateTimeStr = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
 
             foreach (ListViewItem item in databases.Items)
             {
@@ -279,7 +303,7 @@ namespace DBackup
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = mysqldumpPath,
-                        Arguments = $"--user=root --databases {dbName} --result-file=\"{sqlFile}\"",
+                        Arguments = $"--user=root {dbName} --result-file=\"{sqlFile}\"",
                         RedirectStandardOutput = false,
                         UseShellExecute = false,
                         CreateNoWindow = true
@@ -304,11 +328,50 @@ namespace DBackup
 
                     if (autobk.Checked)
                     {
-                        var oldFiles = Directory.GetFiles(dbFolder, "*.zip")
-                            .Where(f => File.GetCreationTime(f) < DateTime.Now.AddDays(-retentionDays));
+                        var nowUtc = DateTime.UtcNow;
 
-                        foreach (string oldFile in oldFiles)
-                            File.Delete(oldFile);
+                        string[] zipFiles = Directory.GetFiles(dbFolder, "*.zip");
+
+                        var backups = zipFiles
+                            .Select(f =>
+                            {
+                                string fileName = Path.GetFileNameWithoutExtension(f);
+                                var parts = fileName.Split('_');
+                                if (parts.Length < 3)
+                                    return new { Path = f, TimeStamp = (DateTime?)null };
+
+                                string datePart = parts[parts.Length - 2];
+                                string timePart = parts[parts.Length - 1];
+                                DateTime dt;
+                                bool parsed = DateTime.TryParseExact(datePart + timePart, "yyyyMMddHHmmss",
+                                    CultureInfo.InvariantCulture,
+                                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                                    out dt);
+                                return new { Path = f, TimeStamp = parsed ? (DateTime?)dt : null };
+                            })
+                            .Where(x => x.TimeStamp.HasValue)
+                            .OrderByDescending(x => x.TimeStamp.Value)
+                            .ToList();
+
+                        if (backups.Count > retentionDays)
+                        {
+                            var candidates = backups.Skip(retentionDays);
+
+                            foreach (var candidate in candidates)
+                            {
+                                if ((nowUtc - candidate.TimeStamp.Value).TotalDays > retentionDays)
+                                {
+                                    try
+                                    {
+                                        File.Delete(candidate.Path);
+                                    }
+                                    catch
+                                    {
+                                        // ignore
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -323,7 +386,7 @@ namespace DBackup
             string server = serverftp.Text.Trim();
             string user = userftp.Text.Trim();
             string pass = passftp.Text.Trim();
-            string baseRemotePath = $"{caleftp.Text.Trim().TrimEnd('/')}/{foldername.Text.Trim()}";
+            string baseRemotePath = $"{caleftp.Text.Trim().TrimEnd('/')}";
             int retentionDays = int.TryParse(nrdaysbk.Text.Trim(), out int days) ? days : 7;
             string localBasePath = BackupPath();
 
@@ -361,16 +424,96 @@ namespace DBackup
                         using (var stream = req.GetRequestStream())
                             stream.Write(data, 0, data.Length);
 
-                        using (var resp = (FtpWebResponse)req.GetResponse()) { }
+                        using ((FtpWebResponse)req.GetResponse()) { }
                     }
                     catch (Exception ex)
                     {
                         ShowSmartMessage($"Upload error for {fileName}: {ex.Message}");
                     }
                 }
+
                 if (autobk.Checked)
                 {
-                    DeleteOldFtpFiles(server, user, pass, remotePath, retentionDays);
+                    try
+                    {
+                        var listReq = (FtpWebRequest)WebRequest.Create($"ftp://{server}/{remotePath.TrimStart('/')}");
+                        listReq.Method = WebRequestMethods.Ftp.ListDirectory;
+                        listReq.Credentials = new NetworkCredential(user, pass);
+                        listReq.UsePassive = true;
+                        listReq.UseBinary = true;
+                        listReq.KeepAlive = false;
+                        listReq.Timeout = 15000;
+
+                        List<string> names;
+                        using (var r = (FtpWebResponse)listReq.GetResponse())
+                        using (var sr = new StreamReader(r.GetResponseStream()))
+                            names = sr.ReadToEnd()
+                                      .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                                      .Select(Path.GetFileName)
+                                      .Where(n => n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                                      .ToList();
+
+                        var backups = names
+                            .Select(n =>
+                            {
+                                var match = Regex.Match(n, @"_(\d{8})_(\d{6})\.zip$", RegexOptions.IgnoreCase);
+                                if (match.Success)
+                                {
+                                    string datePart = match.Groups[1].Value;
+                                    string timePart = match.Groups[2].Value;
+                                    if (DateTime.TryParseExact(datePart + timePart, "yyyyMMddHHmmss",
+                                        CultureInfo.InvariantCulture,
+                                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                                        out DateTime dt))
+                                    {
+                                        return new { Name = n, TimeStamp = (DateTime?)dt };
+                                    }
+                                }
+                                return new { Name = n, TimeStamp = (DateTime?)null };
+                            })
+                            .Where(x => x.TimeStamp.HasValue)
+                            .OrderByDescending(x => x.TimeStamp.Value)
+                            .ToList();
+
+                        var now = DateTime.UtcNow;
+                        var cutoff = now.AddDays(-retentionDays);
+
+                        var newer = backups.Where(b => b.TimeStamp.Value >= cutoff).ToList();
+                        var older = backups.Where(b => b.TimeStamp.Value < cutoff).ToList();
+
+                        int excess = backups.Count - retentionDays;
+                        if (excess > 0 && older.Count > 0)
+                        {
+                            var deletable = older.Take(excess).ToList();
+
+                            foreach (var old in deletable)
+                            {
+                                string url = $"ftp://{server}/{remotePath.TrimStart('/')}/{Uri.EscapeDataString(old.Name)}";
+                                try
+                                {
+                                    Console.WriteLine($"Deleting old backup: {old.Name} (created: {old.TimeStamp})");
+
+                                    var delReq = (FtpWebRequest)WebRequest.Create(url);
+                                    delReq.Method = WebRequestMethods.Ftp.DeleteFile;
+                                    delReq.Credentials = new NetworkCredential(user, pass);
+                                    delReq.UsePassive = true;
+                                    delReq.UseBinary = true;
+                                    delReq.KeepAlive = false;
+                                    delReq.Timeout = 15000;
+
+                                    using ((FtpWebResponse)delReq.GetResponse()) { }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine($"Error deleting old backup {old.Name}: {ex.Message}");
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error cleaning FTP folder: {ex.Message}");
+                    }
                 }
             }
         }
@@ -409,88 +552,11 @@ namespace DBackup
             }
         }
 
-        private void DeleteOldFtpFiles(string server, string user, string pass, string remotePath, int retentionDays)
-        {
-            try
-            {
-                var req = (FtpWebRequest)WebRequest.Create($"ftp://{server}/{remotePath.TrimStart('/')}");
-                req.Method = WebRequestMethods.Ftp.ListDirectoryDetails;
-                req.Credentials = new NetworkCredential(user, pass);
-                req.UsePassive = true;
-                req.UseBinary = true;
-                req.KeepAlive = false;
-                req.Timeout = 15000;
-
-                List<string> files = new List<string>();
-
-                using (var resp = (FtpWebResponse)req.GetResponse())
-                using (var reader = new StreamReader(resp.GetResponseStream()))
-                {
-                    while (!reader.EndOfStream)
-                    {
-                        var line = reader.ReadLine();
-                        if (string.IsNullOrWhiteSpace(line))
-                            continue;
-
-                        if (line.StartsWith("d", StringComparison.OrdinalIgnoreCase))
-                            continue;
-
-                        var name = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Last();
-                        if (!string.IsNullOrWhiteSpace(name))
-                            files.Add(name);
-                    }
-                }
-
-                foreach (var file in files)
-                {
-                    string fileUrl = $"ftp://{server}/{remotePath.TrimStart('/')}/{Uri.EscapeDataString(file)}";
-
-                    try
-                    {
-                        var dateReq = (FtpWebRequest)WebRequest.Create(fileUrl);
-                        dateReq.Method = WebRequestMethods.Ftp.GetDateTimestamp;
-                        dateReq.Credentials = new NetworkCredential(user, pass);
-                        dateReq.UsePassive = true;
-                        dateReq.UseBinary = true;
-                        dateReq.KeepAlive = false;
-                        dateReq.Timeout = 15000;
-
-                        DateTime modified;
-
-                        using (var resp = (FtpWebResponse)dateReq.GetResponse())
-                            modified = resp.LastModified;
-
-                        if (modified < DateTime.Now.AddDays(-retentionDays))
-                        {
-                            var delReq = (FtpWebRequest)WebRequest.Create(fileUrl);
-                            delReq.Method = WebRequestMethods.Ftp.DeleteFile;
-                            delReq.Credentials = new NetworkCredential(user, pass);
-                            delReq.UsePassive = true;
-                            delReq.UseBinary = true;
-                            delReq.KeepAlive = false;
-                            delReq.Timeout = 15000;
-
-                            using (var resp = (FtpWebResponse)delReq.GetResponse()) { }
-                        }
-                    }
-                    catch (WebException wex)
-                    {
-                        var ftpResp = wex.Response as FtpWebResponse;
-                        Console.WriteLine($"Error processing file '{file}': {ftpResp?.StatusDescription ?? wex.Message}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error cleaning FTP folder: {ex.Message}");
-            }
-        }
-
         private void InstallToStartup()
         {
             try
             {
-                string destFolder = @"C:\DBackup";
+                string destFolder = localPath.Text.Trim();
                 Directory.CreateDirectory(destFolder);
 
                 string exePath = Assembly.GetExecutingAssembly().Location;
@@ -562,7 +628,7 @@ namespace DBackup
                     }
 
                     key.SetValue("SelectedDatabases", string.Join(",", selectedDatabases));
-                    key.SetValue("FolderName", foldername.Text.Trim());
+                    key.SetValue("LocalPath", localPath.Text.Trim());
                     key.SetValue("AutoBk", autobk.Checked ? "1" : "0");
                     key.SetValue("NrDaysBk", nrdaysbk.Text.Trim());
                     key.SetValue("TimeBackup", timebackup.Text.Trim());
@@ -597,7 +663,7 @@ namespace DBackup
                         item.Checked = selectedDatabases.Contains(item.Text);
                     }
 
-                    foldername.Text = key.GetValue("FolderName") as string ?? "";
+                    localPath.Text = key.GetValue("LocalPath") as string ?? "";
                     autobk.Checked = (key.GetValue("AutoBk") as string ?? "0") == "1";
                     nrdaysbk.Text = key.GetValue("NrDaysBk") as string ?? "";
                     timebackup.Text = key.GetValue("TimeBackup") as string ?? "";
@@ -719,57 +785,68 @@ namespace DBackup
                 install.Enabled = false;
                 Cursor.Current = Cursors.WaitCursor;
 
-                if (string.IsNullOrEmpty(nrdaysbk.Text))
+                if (string.IsNullOrWhiteSpace(nrdaysbk.Text))
                 {
                     ShowSmartMessage("Loop days number for automatic backup cannot be empty.");
-                    Cursor.Current = Cursors.Default;
-                    install.Enabled = true;
                     return;
                 }
 
-                if (string.IsNullOrEmpty(foldername.Text))
+                if (string.IsNullOrWhiteSpace(localPath.Text))
                 {
-                    ShowSmartMessage("Backup folder name cannot be empty.");
-                    Cursor.Current = Cursors.Default;
-                    install.Enabled = true;
+                    ShowSmartMessage("Backup Path cannot be empty.");
                     return;
                 }
 
-                if (string.IsNullOrEmpty(timebackup.Text))
+                if (string.IsNullOrWhiteSpace(timebackup.Text))
                 {
                     ShowSmartMessage("Time textbox cannot be empty. (ex: 13:00)");
-                    Cursor.Current = Cursors.Default;
-                    install.Enabled = true;
+                    return;
+                }
+
+                bool hasCheckedDatabase = databases.Items.Cast<ListViewItem>().Any(item => item.Checked);
+                if (!hasCheckedDatabase)
+                {
+                    ShowSmartMessage("Please select at least one database to proceed.");
                     return;
                 }
 
                 SaveSettings();
                 BackupDatabase();
+
                 if (enableftp.Checked)
                 {
                     UploadToFtp();
                 }
+
                 ShowSmartMessage("Backup was created.");
 
                 if (instalat.Text == "Installed: NO")
                 {
-                    if (MessageBox.Show("Do you want the app to autostart on system boot?", "Installing...", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK)
+                    var result = MessageBox.Show("Do you want the app to autostart on system boot?",
+                                                 "Installing...",
+                                                 MessageBoxButtons.OKCancel,
+                                                 MessageBoxIcon.Question);
+
+                    if (result == DialogResult.OK)
                     {
+                        InstallToStartup();
+
                         using (RegistryKey readKey = Registry.CurrentUser.OpenSubKey(RegistryPath))
                         {
                             string instalatVal = readKey?.GetValue("Installed")?.ToString() ?? "0";
                             instalat.Text = "Installed: " + (instalatVal == "1" ? "YES" : "NO");
                         }
-                        InstallToStartup();
                     }
                 }
-
-                Cursor.Current = Cursors.Default;
-                install.Enabled = true;
             }
             catch (Exception ex)
             {
                 ShowSmartMessage("Error: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor.Current = Cursors.Default;
+                install.Enabled = true;
             }
         }
 
@@ -797,9 +874,29 @@ namespace DBackup
                 schtasks.Start();
                 schtasks.WaitForExit();
 
-                instalat.Text = ("Installed: NO");
+                if (instalat.Text == "Installed: YES")
+                {
+                    if (DialogResult.Yes == MessageBox.Show("Do you also want to remove the app?", "App uninstalling...", MessageBoxButtons.YesNo, MessageBoxIcon.Question))
+                    {
+                        string exePath = Assembly.GetExecutingAssembly().Location;
+                        string batPath = Path.Combine(Path.GetTempPath(), "delme.bat");
+                        string desktopShortcut = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "DBackup.lnk");
+
+                        File.WriteAllText(batPath, $@"
+                            @echo off
+                            ping 127.0.0.1 -n 3 > nul
+                            del ""{desktopShortcut}""
+                            del ""{exePath}""
+                            del ""%~f0""
+                            ");
+
+                        Process.Start(new ProcessStartInfo("cmd.exe", $"/C \"{batPath}\"") { CreateNoWindow = true });
+                        Application.Exit();
+                    }
+                }
 
                 ShowSmartMessage("Settings was deleted successfully.", "App resetting...", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                instalat.Text = ("Installed: NO");
             }
             catch (Exception ex)
             {
@@ -840,5 +937,7 @@ namespace DBackup
                 MessageBox.Show(message, title, buttons, icon);
             }
         }
+
+
     }
 }

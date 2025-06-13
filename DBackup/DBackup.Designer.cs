@@ -43,7 +43,7 @@ namespace DBackup
             this.nrdaysbk = new System.Windows.Forms.TextBox();
             this.nrdaysbktxt = new System.Windows.Forms.Label();
             this.foldernametxt = new System.Windows.Forms.Label();
-            this.foldername = new System.Windows.Forms.TextBox();
+            this.localPath = new System.Windows.Forms.TextBox();
             this.notifyIcon = new System.Windows.Forms.NotifyIcon(this.components);
             this.enableftp = new System.Windows.Forms.CheckBox();
             this.passftptxt = new System.Windows.Forms.Label();
@@ -61,6 +61,8 @@ namespace DBackup
             this.instalat = new System.Windows.Forms.Label();
             this.reset = new System.Windows.Forms.Button();
             this.saveSet = new System.Windows.Forms.Button();
+            this.bkPathSelect = new System.Windows.Forms.FolderBrowserDialog();
+            this.browsePath = new System.Windows.Forms.Button();
             this.SuspendLayout();
             // 
             // databases
@@ -173,20 +175,19 @@ namespace DBackup
             this.foldernametxt.ForeColor = System.Drawing.Color.White;
             this.foldernametxt.Location = new System.Drawing.Point(13, 159);
             this.foldernametxt.Name = "foldernametxt";
-            this.foldernametxt.Size = new System.Drawing.Size(85, 16);
+            this.foldernametxt.Size = new System.Drawing.Size(73, 16);
             this.foldernametxt.TabIndex = 18;
-            this.foldernametxt.Text = "Folder Name:";
+            this.foldernametxt.Text = "Local Path:";
             // 
-            // foldername
+            // localPath
             // 
-            this.foldername.BackColor = System.Drawing.Color.White;
-            this.foldername.Font = new System.Drawing.Font("Arial", 9.75F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
-            this.foldername.ForeColor = System.Drawing.Color.Black;
-            this.foldername.Location = new System.Drawing.Point(99, 156);
-            this.foldername.Name = "foldername";
-            this.foldername.Size = new System.Drawing.Size(180, 22);
-            this.foldername.TabIndex = 17;
-            this.foldername.Text = "Backups";
+            this.localPath.BackColor = System.Drawing.Color.White;
+            this.localPath.Font = new System.Drawing.Font("Arial", 8.25F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.localPath.ForeColor = System.Drawing.Color.Black;
+            this.localPath.Location = new System.Drawing.Point(99, 157);
+            this.localPath.Name = "localPath";
+            this.localPath.Size = new System.Drawing.Size(144, 20);
+            this.localPath.TabIndex = 17;
             // 
             // notifyIcon
             // 
@@ -305,7 +306,7 @@ namespace DBackup
             this.caleftp.Name = "caleftp";
             this.caleftp.Size = new System.Drawing.Size(223, 22);
             this.caleftp.TabIndex = 27;
-            this.caleftp.Text = "Example/UserName";
+            this.caleftp.Text = "DBackup/Backups";
             // 
             // timebackuptxt
             // 
@@ -402,6 +403,16 @@ namespace DBackup
             this.saveSet.UseVisualStyleBackColor = false;
             this.saveSet.Click += new System.EventHandler(this.saveSet_Click);
             // 
+            // browsePath
+            // 
+            this.browsePath.Location = new System.Drawing.Point(249, 157);
+            this.browsePath.Name = "browsePath";
+            this.browsePath.Size = new System.Drawing.Size(32, 21);
+            this.browsePath.TabIndex = 37;
+            this.browsePath.Text = "...";
+            this.browsePath.UseVisualStyleBackColor = true;
+            this.browsePath.Click += new System.EventHandler(this.browsePath_Click);
+            // 
             // DBackup
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
@@ -409,6 +420,7 @@ namespace DBackup
             this.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
             this.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(20)))), ((int)(((byte)(40)))));
             this.ClientSize = new System.Drawing.Size(600, 350);
+            this.Controls.Add(this.browsePath);
             this.Controls.Add(this.saveSet);
             this.Controls.Add(this.reset);
             this.Controls.Add(this.instalat);
@@ -426,7 +438,7 @@ namespace DBackup
             this.Controls.Add(this.passftp);
             this.Controls.Add(this.enableftp);
             this.Controls.Add(this.foldernametxt);
-            this.Controls.Add(this.foldername);
+            this.Controls.Add(this.localPath);
             this.Controls.Add(this.nrdaysbktxt);
             this.Controls.Add(this.nrdaysbk);
             this.Controls.Add(this.minimize);
@@ -460,7 +472,7 @@ namespace DBackup
         private System.Windows.Forms.TextBox nrdaysbk;
         private System.Windows.Forms.Label nrdaysbktxt;
         private System.Windows.Forms.Label foldernametxt;
-        private System.Windows.Forms.TextBox foldername;
+        private System.Windows.Forms.TextBox localPath;
         private System.Windows.Forms.NotifyIcon notifyIcon;
         private System.Windows.Forms.CheckBox enableftp;
         private System.Windows.Forms.Label passftptxt;
@@ -481,6 +493,8 @@ namespace DBackup
         private Label instalat;
         private Button reset;
         private Button saveSet;
+        private FolderBrowserDialog bkPathSelect;
+        private Button browsePath;
     }
 }
 
