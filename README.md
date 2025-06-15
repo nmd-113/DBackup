@@ -8,9 +8,9 @@
 
 - 🔁 Automatic scheduled backups of MySQL databases  
 - ☁️ FTP upload of backup files after each run  
-- 🛠️ Customizable backup settings (host, user, password, database, destination folder, etc.)  
+- 🛠️ Customizable backup settings (host, user, password, database, Backup Path, etc.)  
 - 📅 Built-in scheduler for daily or custom interval backups  
-- 💾 Local Backups are found in the install folder (C:\DBAckup)  
+- 💾 Local Backups/Install folder is selected by the user
 - 🧹 Auto-cleanup of old backups to save storage  
 - ✅ Easy-to-use GUI with minimal setup required
 
