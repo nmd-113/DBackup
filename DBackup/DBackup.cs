@@ -144,23 +144,29 @@ namespace DBackup
 
             if (mysqlPath == null)
             {
-                ShowSmartMessage("mysql.exe nu a fost găsit pe C: sau D:. Vă rugăm să verificați instalarea MySQL.");
+                ShowSmartMessage("mysql.exe was not found. Please check if MySQL is installed on this computer.");
                 return;
             }
 
             try
             {
-                var startInfo = new ProcessStartInfo
+                var excludedDatabases = new HashSet<string>
+        {
+            "information_schema", "performance_schema", "mysql", "sys", "phpmyadmin", "test", "testdb"
+        };
+
+                var showDatabasesInfo = new ProcessStartInfo
                 {
                     FileName = mysqlPath,
-                    Arguments = "-u root -e \"SELECT table_schema, ROUND(SUM(data_length + index_length) / 1024 / 1024, 2), COUNT(*) FROM information_schema.tables GROUP BY table_schema\" --batch --silent",
+                    Arguments = "-u root -e \"SHOW DATABASES;\" --batch --silent",
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
 
-                using (var process = Process.Start(startInfo))
+                List<string> databaseNames = new List<string>();
+                using (var process = Process.Start(showDatabasesInfo))
                 {
                     if (process == null)
                     {
@@ -178,37 +184,87 @@ namespace DBackup
                         return;
                     }
 
-                    if (databases == null)
-                        return;
+                    var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
 
-                    databases.Items.Clear();
-
-                    List<string> excludedDatabases = new List<string>
-            {
-                "information_schema", "performance_schema", "mysql", "sys", "phpmyadmin", "test", "testdb"
-            };
-
-                    string[] lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-                    for (int i = 1; i < lines.Length; i++)
+                    foreach (var dbName in lines)
                     {
-                        var parts = lines[i].Trim().Split('\t');
-
-                        if (parts.Length >= 3)
+                        string trimmed = dbName.Trim();
+                        if (!excludedDatabases.Contains(trimmed))
                         {
-                            string dbName = parts[0];
-                            if (excludedDatabases.Contains(dbName))
-                                continue;
-
-                            var item = new ListViewItem(dbName);
-                            item.SubItems.Add(parts[1]); // Size MB
-                            item.SubItems.Add(parts[2]); // Table count
-                            databases.Items.Add(item);
+                            databaseNames.Add(trimmed);
                         }
                     }
-
-                    databases.Refresh();
                 }
+
+                if (databases == null)
+                {
+                    ShowSmartMessage("ListView 'databases' is null.");
+                    return;
+                }
+
+                databases.Items.Clear();
+
+                foreach (var dbName in databaseNames)
+                {
+                    string query = $@"
+                SELECT 
+                    COUNT(*) AS tables_count,
+                    ROUND(COALESCE(SUM(data_length + index_length),0)/1024/1024, 2) AS size_mb
+                FROM information_schema.tables
+                WHERE table_schema = '{dbName}';";
+
+                    var sizeInfoStartInfo = new ProcessStartInfo
+                    {
+                        FileName = mysqlPath,
+                        Arguments = $"-u root -e \"{query}\" --batch --silent",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+
+                    using (var sizeProcess = Process.Start(sizeInfoStartInfo))
+                    {
+                        if (sizeProcess == null)
+                        {
+                            ShowSmartMessage("Failed to start MySQL process for size info.");
+                            return;
+                        }
+
+                        string sizeOutput = sizeProcess.StandardOutput.ReadToEnd();
+                        string sizeError = sizeProcess.StandardError.ReadToEnd();
+                        sizeProcess.WaitForExit();
+
+                        if (!string.IsNullOrWhiteSpace(sizeError))
+                        {
+                            ShowSmartMessage("MySQL Error:\n" + sizeError);
+                            return;
+                        }
+
+                        Console.WriteLine($"DB: {dbName}, Query output:\n{sizeOutput}");
+
+                        string tableCount = "0";
+                        string size = "0";
+
+                        var lines = sizeOutput.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (lines.Length >= 1)
+                        {
+                            var parts = lines[0].Split('\t');
+                            if (parts.Length >= 2)
+                            {
+                                tableCount = string.IsNullOrWhiteSpace(parts[0]) || parts[0].ToLower() == "null" ? "0" : parts[0];
+                                size = string.IsNullOrWhiteSpace(parts[1]) || parts[1].ToLower() == "null" ? "0" : parts[1];
+                            }
+                        }
+
+                        var item = new ListViewItem(dbName);
+                        item.SubItems.Add(size);
+                        item.SubItems.Add(tableCount);
+                        databases.Items.Add(item);
+                    }
+                }
+
+                databases.Refresh();
             }
             catch (Exception ex)
             {
