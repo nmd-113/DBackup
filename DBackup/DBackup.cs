@@ -1,6 +1,6 @@
 ﻿using DBackup.Models;
 using DBackup.Services;
-using MySqlConnector; // Keep this for MySqlException handling
+using MySqlConnector;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
