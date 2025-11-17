@@ -41,6 +41,7 @@ namespace DBackup
         public DBackup()
         {
             InitializeComponent();
+            appVersion.Text = "v" + Assembly.GetExecutingAssembly().GetName().Version.ToString();
 
             // Initialize services
             _settingsService = new SettingsService();
@@ -192,6 +193,10 @@ namespace DBackup
 
                 // Run backup
                 await Task.Run(() => _backupService.PerformBackup(settings));
+
+                settings.LastBackupDate = DateTime.Now;
+                _settingsService.SaveSettings(settings);
+
                 ShowSmartMessage("Backup was created.");
 
                 // Handle installation
