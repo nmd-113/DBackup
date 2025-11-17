@@ -241,7 +241,8 @@ namespace DBackup.Services
                               .ToList();
 
                 // 2. Parse dates
-                var backups = names.Select(n => {
+                var backups = names.Select(n =>
+                {
                     var match = Regex.Match(n, @"_(\d{8})_(\d{6})\.zip$", RegexOptions.IgnoreCase);
                     if (match.Success && DateTime.TryParseExact(match.Groups[1].Value + match.Groups[2].Value, "yyyyMMddHHmmss",
                         CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var dt))
