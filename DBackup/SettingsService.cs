@@ -1,6 +1,8 @@
 ﻿using DBackup.Models;
 using Microsoft.Win32;
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -26,7 +28,9 @@ namespace DBackup.Services
                 key.SetValue("AutoBk", settings.AutoBackupEnabled ? "1" : "0");
                 key.SetValue("NrDaysBk", settings.RetentionDays.ToString());
                 key.SetValue("TimeBackup", settings.BackupTime.ToString(@"hh\:mm"));
-                key.SetValue("LastBackupDate", settings.LastBackupDate.ToString("yyyy-MM-dd"));
+
+                // Save Last Backup Date
+                key.SetValue("LastBackupDate", settings.LastBackupDate.ToString("yyyy-MM-dd HH:mm:ss"));
 
                 // FTP
                 key.SetValue("EnableFtp", settings.FtpEnabled ? "1" : "0");
@@ -62,6 +66,8 @@ namespace DBackup.Services
                 settings.RetentionDays = days;
                 TimeSpan.TryParse(key.GetValue("TimeBackup") as string ?? "00:00", out TimeSpan time);
                 settings.BackupTime = time;
+
+                // Last Backup Date
                 DateTime.TryParse(key.GetValue("LastBackupDate") as string ?? "", out DateTime lastRun);
                 settings.LastBackupDate = lastRun;
 
@@ -103,7 +109,7 @@ namespace DBackup.Services
             }
             catch
             {
-                return ""; // Failed (empty or corrupt)
+                return "";
             }
         }
     }

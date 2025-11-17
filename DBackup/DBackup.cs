@@ -307,7 +307,7 @@ namespace DBackup
                 await Task.Run(() => _backupService.PerformBackup(settings));
 
                 // Update and save the last run date
-                settings.LastBackupDate = DateTime.Now.Date;
+                settings.LastBackupDate = DateTime.Now;
                 _settingsService.SaveSettings(settings);
             }
         }
