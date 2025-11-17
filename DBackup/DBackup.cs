@@ -1,6 +1,6 @@
 ﻿using DBackup.Models;
 using DBackup.Services;
-using MySqlConnector;
+using MySqlConnector; // Keep this for MySqlException handling
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -44,7 +44,6 @@ namespace DBackup
         public DBackup()
         {
             InitializeComponent();
-            appVersion.Text = "v" + Application.ProductVersion;
 
             // Initialize services
             _settingsService = new SettingsService();
@@ -53,7 +52,7 @@ namespace DBackup
             _backupService = new BackupService();
 
             // Wire up service events
-            _backupService.OnError += LogError;
+            _backupService.OnError += LogError; // Log errors from the service
 
             notifyIcon.Visible = false;
             this.Resize += new EventHandler(DBackup_Resize);
@@ -70,7 +69,7 @@ namespace DBackup
         private void DBackup_Load(object sender, EventArgs e)
         {
             LoadSettingsToUi();
-            LoadMySQLDatabases();
+            LoadMySQLDatabases(); // Try loading with saved settings
             _schedulerService.Start(OnSchedulerTick);
 
             if (string.IsNullOrWhiteSpace(localPath.Text))
