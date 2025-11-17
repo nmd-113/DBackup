@@ -128,37 +128,64 @@ namespace DBackup.Services
             }
         }
 
-        private void CleanupLocalFiles(string dbFolder, int retentionDays)
+        private void CleanupLocalFiles(string dbFolder, int minFilesToKeep)
         {
             try
             {
-                var cutoffDate = DateTime.UtcNow.Date.AddDays(-retentionDays);
-                string[] zipFiles = Directory.GetFiles(dbFolder, "*.zip");
+                var timeCutoff = DateTime.UtcNow.AddDays(-minFilesToKeep);
 
-                foreach (string file in zipFiles)
+                string[] filePaths = Directory.GetFiles(dbFolder, "*.zip");
+                string pattern = @"_(\d{8})_(\d{6})\.zip$";
+
+                var backups = filePaths.Select(path =>
                 {
-                    var match = Regex.Match(Path.GetFileName(file), @"_(\d{8})_(\d{6})\.zip$", RegexOptions.IgnoreCase);
+                    var fileName = Path.GetFileName(path);
+                    var match = Regex.Match(fileName, pattern, RegexOptions.IgnoreCase);
+
+                    DateTime? timeStamp = null;
                     if (match.Success)
                     {
-                        string datePart = match.Groups[1].Value;
-                        string timePart = match.Groups[2].Value;
-
-                        if (DateTime.TryParseExact(datePart + timePart, "yyyyMMddHHmmss",
+                        string dateAndTime = match.Groups[1].Value + match.Groups[2].Value;
+                        if (DateTime.TryParseExact(dateAndTime, "yyyyMMddHHmmss",
                             CultureInfo.InvariantCulture,
                             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                            out var fileDate))
+                            out var dt))
                         {
-                            if (fileDate.Date < cutoffDate)
-                            {
-                                File.Delete(file);
-                            }
+                            timeStamp = dt;
                         }
+                    }
+
+                    return new { Path = path, TimeStamp = timeStamp };
+                })
+                .Where(x => x.TimeStamp.HasValue)
+                .OrderByDescending(x => x.TimeStamp.Value)
+                .ToList();
+
+                var filesToProtect = backups
+                    .Take(minFilesToKeep)
+                    .Select(b => b.Path)
+                    .ToHashSet();
+
+                var filesToDelete = backups.Where(b =>
+                    b.TimeStamp.Value < timeCutoff &&
+                    !filesToProtect.Contains(b.Path))
+                    .ToList();
+
+                foreach (var old in filesToDelete)
+                {
+                    try
+                    {
+                        File.Delete(old.Path);
+                    }
+                    catch (Exception ex)
+                    {
+                        OnError?.Invoke($"Error deleting old local backup {Path.GetFileName(old.Path)}: {ex.Message}", "Local Cleanup");
                     }
                 }
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(ex.Message, $"Local Cleanup: {Path.GetFileName(dbFolder)}");
+                OnError?.Invoke(ex.Message, $"Local Cleanup Folder: {Path.GetFileName(dbFolder)}");
             }
         }
 
@@ -224,7 +251,6 @@ namespace DBackup.Services
         {
             try
             {
-                // 1. Get file list
                 var listReq = (FtpWebRequest)WebRequest.Create($"ftp://{settings.FtpServer}/{remotePath.TrimStart('/')}");
                 listReq.Method = WebRequestMethods.Ftp.ListDirectory;
                 listReq.Credentials = new NetworkCredential(settings.FtpUser, settings.FtpPass);
@@ -240,7 +266,6 @@ namespace DBackup.Services
                               .Where(n => n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
                               .ToList();
 
-                // 2. Parse dates
                 var backups = names.Select(n =>
                 {
                     var match = Regex.Match(n, @"_(\d{8})_(\d{6})\.zip$", RegexOptions.IgnoreCase);
@@ -255,11 +280,17 @@ namespace DBackup.Services
                 .OrderByDescending(x => x.TimeStamp.Value)
                 .ToList();
 
-                var cutoff = DateTime.UtcNow.AddDays(-settings.RetentionDays);
-                var older = backups.Where(b => b.TimeStamp.Value < cutoff).ToList();
+                var timeCutoff = DateTime.UtcNow.AddDays(-settings.RetentionDays);
 
-                // 3. Delete old files
-                foreach (var old in older)
+                int minFilesToKeep = settings.RetentionDays;
+
+                var filesToConsiderForDeletion = backups.Skip(minFilesToKeep).ToList();
+
+                var filesToDelete = filesToConsiderForDeletion
+                    .Where(b => b.TimeStamp.Value < timeCutoff)
+                    .ToList();
+
+                foreach (var old in filesToDelete)
                 {
                     string url = $"ftp://{settings.FtpServer}/{remotePath.TrimStart('/')}/{Uri.EscapeDataString(old.Name)}";
                     try
